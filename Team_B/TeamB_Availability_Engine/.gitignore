@@ -1,0 +1,7 @@
+target/
+data/*.mv.db
+data/*.trace.db
+data/api-key.txt
+.idea/
+.vscode/
+*.iml

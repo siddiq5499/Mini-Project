@@ -1,0 +1,13 @@
+{
+  "name": "careslot-team-d",
+  "version": "1.0.0",
+  "description": "CareSlot: Team D scheduler portal and backend-for-frontend (Appointment Scheduler Engine)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "teams": "node practice-teams.js"
+  },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

@@ -1,0 +1,102 @@
+openapi: 3.0.3
+info:
+  title: CareSlot Team C API
+  version: v1
+  description: "Appointment Data & Transaction Manager. Every request except /health needs the header Authorization: Bearer <service-key>. Optional headers X-Correlation-ID, X-Actor, X-Source-Service. All responses are JSON envelopes."
+servers: [{ url: 'http://localhost:4000' }]
+security: [{ bearer: [] }]
+components:
+  securitySchemes: { bearer: { type: http, scheme: bearer } }
+  responses:
+    Err:
+      description: "Error envelope. Codes: UNAUTHENTICATED 401, VALIDATION_ERROR 400, NOT_FOUND 404, SLOT_CONFLICT 409, ILLEGAL_TRANSITION 409, CAPACITY_EXHAUSTED 409, DUPLICATE_USER 409, ALREADY_BOOKED 409, PROVIDER_UNAVAILABLE 409, VERSION_CONFLICT 409, INTERNAL_ERROR 500"
+      content:
+        application/json:
+          example: { error: { code: SLOT_CONFLICT, message: That slot is already booked., details: [{ provider_id: DR-001, start: '2026-10-08T09:00:00.000Z', end: '2026-10-08T09:10:00.000Z' }] }, meta: { correlation_id: abc-123 } }
+  parameters:
+    id: { name: id, in: path, required: true, schema: { type: string } }
+paths:
+  /health:
+    get:
+      security: []
+      summary: Liveness (no key needed)
+      responses: { '200': { description: ok, content: { application/json: { example: { status: ok } } } } }
+  /api/v1/users:
+    post:
+      summary: Create a patient, provider (doctor) or admin
+      requestBody: { content: { application/json: { example: { role: PROVIDER, name: Dr. Asha Rao, email: asha@hospital.com, service: Cardiologist, daily_token_limit: 30 } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { example: { data: { user_id: DR-005, role: PROVIDER, name: Dr. Asha Rao, email: asha@hospital.com, phone: null, provider_id: DR-005, service: Cardiologist, status: ACTIVE, daily_token_limit: 30, created_at: '2026-10-08T08:00:00.000Z' }, meta: { correlation_id: c1, api_version: v1 } } } } }
+        '400': { $ref: '#/components/responses/Err' }
+        '409': { $ref: '#/components/responses/Err' }
+    get:
+      summary: List users (admin screen)
+      parameters: [{ name: role, in: query, schema: { type: string, enum: [PATIENT, PROVIDER, ADMIN] } }, { name: q, in: query, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { example: { data: [{ user_id: PT-0001, role: PATIENT, name: Aarav Patil, email: aarav@gmail.com, phone: '9876500001', patient_code: PT-0001, appointments: 1, created_at: '2026-10-08T08:00:00.000Z' }], meta: { correlation_id: c2, api_version: v1 } } } } } }
+  /api/v1/users/{id}:
+    get:
+      summary: One user by public id (PT-0001 / DR-001 / AD-001)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: ok }, '404': { $ref: '#/components/responses/Err' } }
+  /api/v1/providers:
+    get:
+      summary: List providers
+      responses: { '200': { description: ok, content: { application/json: { example: { data: [{ provider_id: DR-001, name: Dr. Rahul Patil, service: Cardiologist, specialization: Cardiologist, status: ACTIVE, daily_token_limit: 30, department: Cardiology, email: rahul@hospital.com }], meta: { correlation_id: c3, api_version: v1 } } } } } }
+  /internal/v1/providers/{id}:
+    patch:
+      summary: Update status (ACTIVE|INACTIVE), daily_token_limit, name or service
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { content: { application/json: { example: { status: INACTIVE, daily_token_limit: 40 } } } }
+      responses: { '200': { description: Updated provider, content: { application/json: { example: { data: { provider_id: DR-001, name: Dr. Rahul Patil, service: Cardiologist, status: INACTIVE, daily_token_limit: 40 }, meta: { correlation_id: c4, api_version: v1 } } } } }, '404': { $ref: '#/components/responses/Err' } }
+  /api/v1/providers/{id}/calendar:
+    get:
+      summary: Working hours, capacity, blocked (booked) intervals and per-day token availability
+      parameters: [{ $ref: '#/components/parameters/id' }, { name: from, in: query, schema: { type: string, example: '2026-10-08' } }, { name: days, in: query, schema: { type: integer, default: 30 } }, { name: user_id, in: query, schema: { type: string }, description: marks days this patient already booked as MINE }]
+      responses: { '200': { description: ok, content: { application/json: { example: { data: { provider: { provider_id: DR-001, name: Dr. Rahul Patil, service: Cardiologist, status: ACTIVE, daily_token_limit: 30 }, calendar_version: v12, capacity: { daily_token_limit: 30, slot_minutes: 10 }, working_hours: [{ date: '2026-10-09', start: '09:00:00', end: '17:00:00' }], blocked_intervals: [{ start: '2026-10-09T09:00:00.000Z', end: '2026-10-09T09:10:00.000Z', state: CONFIRMED }], dates: [{ date: '2026-10-09', daily_token_limit: 30, booked_tokens: 1, remaining_tokens: 29, status: AVAILABLE, user_token: null }] }, meta: { correlation_id: c5, api_version: v1 } } } } } }
+  /api/v1/appointments:
+    post:
+      summary: Create a booking (needs Idempotency-Key header)
+      description: start/end optional - send `date` (YYYY-MM-DD) and Team C assigns the next free slot + token. Daily limit reached -> 201 with state WAITLISTED. EMERGENCY pushes affected appointments later (see rescheduled[]).
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string } }]
+      requestBody: { content: { application/json: { example: { appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d, user_id: PT-0001, provider_id: DR-001, service_type: Cardiologist, start: '2026-10-08T09:00:00Z', end: '2026-10-08T09:30:00Z', priority: NORMAL, purpose: checkup } } } }
+      responses:
+        '201': { description: Created or idempotent replay (header Idempotent-Replay true), content: { application/json: { example: { data: { appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d, state: CONFIRMED, version: 1, provider_id: DR-001, token_number: 4, start: '2026-10-08T09:00:00.000Z', end: '2026-10-08T09:30:00.000Z', audit_id: 8c0a..., rescheduled: [] }, meta: { correlation_id: c6, api_version: v1 } } } } }
+        '400': { $ref: '#/components/responses/Err' }
+        '404': { $ref: '#/components/responses/Err' }
+        '409': { $ref: '#/components/responses/Err' }
+    get:
+      summary: List appointments
+      parameters: [{ name: user_id, in: query, schema: { type: string } }, { name: provider_id, in: query, schema: { type: string } }, { name: date, in: query, schema: { type: string } }, { name: state, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer } }]
+      responses: { '200': { description: ok, content: { application/json: { example: { data: [{ appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d, user_id: PT-0001, patient_name: Aarav Patil, provider_id: DR-001, provider_name: Dr. Rahul Patil, service_type: Cardiologist, state: CONFIRMED, version: 1, priority: NORMAL, token_number: 4, date: '2026-10-08', start: '2026-10-08T09:00:00.000Z', end: '2026-10-08T09:30:00.000Z', purpose: checkup }], meta: { correlation_id: c7, api_version: v1 } } } } } }
+  /api/v1/appointments/{id}:
+    get:
+      summary: One appointment with state and version
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      responses: { '200': { description: ok, content: { application/json: { example: { data: { appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d, state: CONFIRMED, version: 1, token_number: 4 }, meta: { correlation_id: c8, api_version: v1 } } } } }, '404': { $ref: '#/components/responses/Err' } }
+  /api/v1/appointments/{id}/cancel:
+    post:
+      summary: Cancel and free the slot (optional body expected_version)
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { content: { application/json: { example: { expected_version: 1 } } } }
+      responses: { '200': { description: Cancelled, content: { application/json: { example: { data: { appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d, state: CANCELLED, version: 2, audit_id: 77aa... }, meta: { correlation_id: c9, api_version: v1 } } } } }, '409': { $ref: '#/components/responses/Err' } }
+  /internal/v1/appointments/{id}/transition:
+    post:
+      summary: Move the state (rules enforced). Optional body field new_token true with to_state RESCHEDULED gives the patient a new token at the end of the queue.
+      parameters: [{ $ref: '#/components/parameters/id' }]
+      requestBody: { content: { application/json: { example: { to_state: CALLED } } } }
+      responses: { '200': { description: Moved, content: { application/json: { example: { data: { appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d, state: CALLED, version: 2, audit_id: 55bb... }, meta: { correlation_id: c10, api_version: v1 } } } } }, '409': { description: ILLEGAL_TRANSITION, content: { application/json: { example: { error: { code: ILLEGAL_TRANSITION, message: Cannot move from CONFIRMED to COMPLETED., details: [{ from: CONFIRMED, to: COMPLETED, allowed: [CALLED, CANCELLED, RESCHEDULED, NO_SHOW, WAITLISTED] }] }, meta: { correlation_id: c10 } } } } } }
+  /api/v1/reports/utilization:
+    get:
+      summary: Per doctor per day counts
+      parameters: [{ name: from, in: query, schema: { type: string } }, { name: to, in: query, schema: { type: string } }, { name: provider_id, in: query, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { example: { data: [{ provider_id: DR-001, provider_name: Dr. Rahul Patil, date: '2026-10-09', daily_token_limit: 30, booked: 12, completed: 0, cancelled: 2, no_show: 0, waitlisted: 0, utilization_pct: 40.0 }], meta: { correlation_id: c11, api_version: v1 } } } } } }
+  /api/v1/audit:
+    get:
+      summary: Audit rows
+      parameters: [{ name: correlation_id, in: query, schema: { type: string } }, { name: entity_id, in: query, schema: { type: string } }]
+      responses: { '200': { description: ok, content: { application/json: { example: { data: [{ audit_id: 8c0a..., actor: PT-0001, action: APPOINTMENT_CREATED, entity: appointment, entity_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d, before_json: null, after_json: { state: CONFIRMED }, correlation_id: c6, source_service: team-d, created_at: '2026-10-08T08:01:00.000Z' }], meta: { correlation_id: c12, api_version: v1 } } } } } }
+  /api/v1/events:
+    get:
+      summary: New outbox events since a cursor
+      parameters: [{ name: since, in: query, schema: { type: integer, default: 0 } }]
+      responses: { '200': { description: ok, content: { application/json: { example: { data: { events: [{ event_id: 41, type: appointment.created, payload: { appointment_id: 3f1c..., provider_id: DR-001, state: CONFIRMED }, created_at: '2026-10-08T08:01:00.000Z' }], next_cursor: 41 }, meta: { correlation_id: c13, api_version: v1 } } } } } }

@@ -1,0 +1,895 @@
+openapi: 3.0.3
+info:
+  title: CareSlot Team D - Backend-for-Frontend API
+  version: v1
+  description: 'All routes live under /api/v1/ui. Send Authorization: Bearer <session token> (from POST /session). Responses use the envelope
+    {data, meta:{correlation_id, api_version}}; errors {error:{code,message,details}, meta}. X-Correlation-ID is echoed and forwarded to Team
+    C. Rate limit: 1200 requests/min per IP, 30/min for login and register (429 RATE_LIMITED).'
+servers:
+- url: http://localhost:3000/api/v1/ui
+security:
+- bearer: []
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  responses:
+    Err:
+      description: 'Error. Codes: VALIDATION_ERROR 400, UNAUTHENTICATED 401, BAD_CREDENTIALS 401, FORBIDDEN 403, NOT_FOUND 404, ALREADY_BOOKED
+        409, TOKENS_FULL 409, SLOT_CONFLICT 409, ILLEGAL_TRANSITION 409, PROVIDER_UNAVAILABLE 409, RATE_LIMITED 429, TEAM_C_UNAVAILABLE 503 (Team
+        C errors are passed through with their own code).'
+      content:
+        application/json:
+          example:
+            error:
+              code: TOKENS_FULL
+              message: All 30 tokens for Dr. Rahul Patil on 2026-10-12 are booked. Please choose another date.
+              details: []
+            meta:
+              correlation_id: c-123
+paths:
+  /session:
+    post:
+      summary: Log in
+      description: 'Allowed roles: public.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  token: <session token>
+                  user: &id001
+                    user_id: 6f1e...
+                    patient_code: PT-0007
+                    name: Asha Rao
+                    email: asha@gmail.com
+                    phone: '9123456780'
+                    role: PATIENT
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              identifier: asha@gmail.com
+              password: secret12
+      security: []
+    delete:
+      summary: Log out
+      description: 'Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  logged_out: true
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+  /register:
+    post:
+      summary: Register a patient (also created in Team C)
+      description: 'Allowed roles: public.'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  token: <session token>
+                  user: *id001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Asha Rao
+              phone: '9123456780'
+              email: asha@gmail.com
+              password: secret12
+      security: []
+  /me:
+    get:
+      summary: Current user
+      description: 'Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data: *id001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+    patch:
+      summary: Update own profile
+      description: 'Allowed roles: PATIENT.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data: *id001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Asha R
+              email: asha@gmail.com
+  /patients:
+    get:
+      summary: Patient directory
+      description: 'Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                - user_id: 6f1e...
+                  patient_code: PT-0007
+                  name: Asha Rao
+                  email: asha@gmail.com
+                  phone: '9123456780'
+                  role: PATIENT
+                  appointments: 2
+                  created_at: '2026-10-10T08:00:00Z'
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      parameters:
+      - name: q
+        in: query
+        schema:
+          type: string
+          example: asha
+  /providers:
+    get:
+      summary: Doctors (synced from Team C)
+      description: 'Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                - provider_id: DR-001
+                  name: Dr. Rahul Patil
+                  service: Cardiologist
+                  status: ACTIVE
+                  daily_token_limit: 30
+                  current_token: null
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+    post:
+      summary: Add a doctor (created in Team C)
+      description: 'Allowed roles: ADMIN.'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-005
+                  name: Dr. Asha Rao
+                  service: Cardiologist
+                  status: ACTIVE
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              name: Dr. Asha Rao
+              email: asha.dr@hospital.com
+              service: Cardiologist
+              password: Doctor@123
+              daily_token_limit: 30
+  /providers/{id}:
+    patch:
+      summary: Change doctor status (ACTIVE / ON_LEAVE) or limit
+      description: 'Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                  status: ON_LEAVE
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              status: ON_LEAVE
+      parameters:
+      - &id002
+        name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /providers/{id}/token-limit:
+    post:
+      summary: Change daily token limit
+      description: 'Allowed roles: ADMIN, PROVIDER (own).'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                  daily_token_limit: 40
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              daily_token_limit: 40
+      parameters:
+      - *id002
+  /providers/{id}/schedule:
+    put:
+      summary: Set working hours, a day off, or reset a day (stored in Team C)
+      description: 'Body variants: {date,start,end} | {date,closed:true} | {date,reset:true}. 409 SLOT_CONFLICT if the day still has active appointments.
+        Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                  date: '2026-10-20'
+                  mode: closed
+                  start: null
+                  end: null
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              date: '2026-10-20'
+              closed: true
+      parameters:
+      - *id002
+  /tokens/date-info:
+    get:
+      summary: Token capacity for one doctor and day
+      description: 'Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                  date: '2026-10-12'
+                  daily_token_limit: 30
+                  booked_count: 3
+                  remaining_count: 27
+                  next_token_number: 4
+                  is_full: false
+                  status: ACTIVE
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      parameters:
+      - name: provider_id
+        in: query
+        schema:
+          type: string
+          example: DR-001
+      - name: date
+        in: query
+        schema:
+          type: string
+          example: '2026-10-12'
+  /calendars:
+    get:
+      summary: Calendar with per-day token availability (Team C)
+      description: 'Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider:
+                    provider_id: DR-001
+                    name: Dr. Rahul Patil
+                    service: Cardiologist
+                    status: ACTIVE
+                    daily_token_limit: 30
+                  calendar_version: 12
+                  dates:
+                  - date: '2026-10-12'
+                    daily_token_limit: 30
+                    booked_tokens: 3
+                    remaining_tokens: 27
+                    status: AVAILABLE
+                    user_token: null
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      parameters:
+      - name: provider_id
+        in: query
+        schema:
+          type: string
+          example: DR-001
+      - name: days
+        in: query
+        schema:
+          type: string
+          example: '30'
+  /appointments:
+    post:
+      summary: Book a token (Team C decides token and slot)
+      description: 'Allowed roles: PATIENT.'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              example:
+                data: &id003
+                  appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d
+                  reference: AP-0004
+                  user_id: 6f1e...
+                  patient_code: PT-0007
+                  patient_name: Asha Rao
+                  provider_id: DR-001
+                  provider_name: Dr. Rahul Patil
+                  service: Cardiologist
+                  date: '2026-10-12'
+                  start: '2026-10-12T09:30:00.000Z'
+                  token_number: 4
+                  type: REGULAR
+                  state: CONFIRMED
+                  reason: checkup
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              provider_id: DR-001
+              date: '2026-10-12'
+              reason: checkup
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        schema:
+          type: string
+        description: One key per booking attempt. A retry with the same key returns the same booking.
+    get:
+      summary: 'List appointments (patient: own, provider: own doctor, admin: all)'
+      description: 'Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                - *id003
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+  /appointments/{id}:
+    get:
+      summary: 'Appointment details: authoritative Team C state, queue position, reminders'
+      description: 'Allowed roles: owner, own doctor, or ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  appointment: *id003
+                  authoritative:
+                    source: team-c
+                    state: CONFIRMED
+                    version: 1
+                    token_number: 4
+                    start: '2026-10-12T09:30:00.000Z'
+                    end: '2026-10-12T09:40:00.000Z'
+                  queue:
+                    position: 2
+                    people_ahead: 1
+                    now_serving_token: 3
+                    estimated_start: '2026-10-12T09:30:00.000Z'
+                  availability_status: NOT_CHECKED
+                  reminders:
+                  - reminder_id: r1
+                    minutes_before: 60
+                    due_at: '2026-10-12T08:30:00.000Z'
+                    sent: false
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      parameters:
+      - *id002
+  /appointments/{id}/cancel:
+    post:
+      summary: Cancel (also cancelled in Team C)
+      description: 'Allowed roles: PATIENT (own), ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d
+                  reference: AP-0004
+                  user_id: 6f1e...
+                  patient_code: PT-0007
+                  patient_name: Asha Rao
+                  provider_id: DR-001
+                  provider_name: Dr. Rahul Patil
+                  service: Cardiologist
+                  date: '2026-10-12'
+                  start: '2026-10-12T09:30:00.000Z'
+                  token_number: 4
+                  type: REGULAR
+                  state: CANCELLED
+                  reason: checkup
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      parameters:
+      - *id002
+  /appointments/{id}/reminders:
+    post:
+      summary: Set an in-app reminder
+      description: 'minutes_before must be 15, 30, 60, 120 or 1440. Allowed roles: PATIENT (own), ADMIN.'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  reminder_id: r1
+                  appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d
+                  minutes_before: 60
+                  channel: IN_APP
+                  due_at: '2026-10-12T08:30:00.000Z'
+                  sent: false
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              minutes_before: 60
+      parameters:
+      - *id002
+  /emergency:
+    post:
+      summary: 'Emergency booking: first position, others pushed back (Team C)'
+      description: 'patient_name and patient_phone are only needed when ADMIN books a walk-in. Allowed roles: PATIENT, ADMIN.'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  appointment:
+                    appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d
+                    reference: EM-001
+                    user_id: 6f1e...
+                    patient_code: PT-0007
+                    patient_name: Asha Rao
+                    provider_id: DR-001
+                    provider_name: Dr. Rahul Patil
+                    service: Cardiologist
+                    date: '2026-10-12'
+                    start: '2026-10-12T09:30:00.000Z'
+                    token_number: 0
+                    type: EMERGENCY
+                    state: CONFIRMED
+                    reason: checkup
+                  provider:
+                    provider_id: DR-001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              provider_id: DR-001
+              reason: chest pain
+              patient_name: Walk In
+              patient_phone: '9555555555'
+  /tokens/live:
+    get:
+      summary: Live token status of every doctor
+      description: 'Shape abbreviated. Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                - provider_id: DR-001
+                  current_token: 3
+                  status: ACTIVE
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+  /tokens/call-next:
+    post:
+      summary: Call the next token (CALLED in Team C)
+      description: 'Shape abbreviated. Allowed roles: ADMIN, PROVIDER.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                  current_token: 4
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              provider_id: DR-001
+  /tokens/mark-present:
+    post:
+      summary: Patient present -> IN_CONSULTATION
+      description: 'Shape abbreviated. Allowed roles: ADMIN, PROVIDER.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              provider_id: DR-001
+  /tokens/terminate:
+    post:
+      summary: Finish consultation -> COMPLETED
+      description: 'Shape abbreviated. Allowed roles: ADMIN, PROVIDER.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              provider_id: DR-001
+  /tokens/reschedule-absent:
+    post:
+      summary: Absent patient gets a NEW token at the end (Team C)
+      description: 'Shape abbreviated. Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              provider_id: DR-001
+  /tokens/waitlist-absent:
+    post:
+      summary: Absent patient -> WAITLISTED
+      description: 'Shape abbreviated. Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  provider_id: DR-001
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              provider_id: DR-001
+  /tokens/restore-waitlist:
+    post:
+      summary: Waitlisted patient back into the queue (same token)
+      description: 'Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data: *id003
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      requestBody:
+        content:
+          application/json:
+            example:
+              appointment_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d
+  /dev/reset-data:
+    post:
+      summary: 'Development only: clear appointments, reminders and (if allowed) Team C appointments'
+      description: 'Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  reset: true
+                  message: All appointments and tokens have been cleared successfully.
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+  /dashboard:
+    get:
+      summary: Dashboard summary
+      description: 'Shape abbreviated. Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data: {}
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+  /notifications:
+    get:
+      summary: Notifications of the logged-in user
+      description: 'Shape abbreviated. Allowed roles: any logged-in user.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                - id: n1
+                  message: 'Token #4 is now CALLED'
+                  read: false
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+  /stream:
+    get:
+      summary: Server-Sent Events (live updates)
+      description: 'Pass ?token=<session token>. Events: appointment.created, appointment.cancelled, emergency.triggered, provider.updated, token.called,
+        token.terminated, token.updated, token.rescheduled, token.waitlisted, buffer.expired, data.reset, notification.new, ping. Team C outbox
+        events are forwarded here every 3 seconds.'
+      parameters:
+      - name: token
+        in: query
+        schema:
+          type: string
+          example: <session token>
+      responses:
+        '200':
+          description: text/event-stream
+  /reports/utilization:
+    get:
+      summary: Utilization per doctor per day (Team C; local fallback)
+      description: 'Allowed roles: ADMIN, PROVIDER (own doctor only).'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                  source: team-c
+                  from: '2026-10-05'
+                  to: '2026-10-19'
+                  rows:
+                  - provider_id: DR-001
+                    provider_name: Dr. Rahul Patil
+                    date: '2026-10-12'
+                    daily_token_limit: 30
+                    booked: 12
+                    completed: 9
+                    cancelled: 2
+                    no_show: 0
+                    waitlisted: 0
+                    utilization_pct: 40.0
+                  totals:
+                    booked: 12
+                    completed: 9
+                    cancelled: 2
+                    waitlisted: 0
+                    utilization_pct: 40.0
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      parameters:
+      - name: from
+        in: query
+        schema:
+          type: string
+          example: '2026-10-05'
+      - name: to
+        in: query
+        schema:
+          type: string
+          example: '2026-10-19'
+      - name: provider_id
+        in: query
+        schema:
+          type: string
+          example: DR-001
+  /audit:
+    get:
+      summary: Audit trail from Team C, newest first
+      description: 'Allowed roles: ADMIN.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example:
+                data:
+                - audit_id: 8c0a...
+                  actor: PT-0007
+                  action: APPOINTMENT_CREATED
+                  entity: appointment
+                  entity_id: 3f1c2b7e-5a41-4c1e-9b0e-1d2f3a4b5c6d
+                  before_json: null
+                  after_json:
+                    state: CONFIRMED
+                  correlation_id: c-123
+                  source_service: team-d
+                  created_at: '2026-10-10T08:01:00.000Z'
+                meta:
+                  correlation_id: c-123
+                  api_version: v1
+        4XX:
+          $ref: '#/components/responses/Err'
+      parameters:
+      - name: entity_id
+        in: query
+        schema:
+          type: string
+          example: <appointment id>
+      - name: correlation_id
+        in: query
+        schema:
+          type: string
+          example: c-123
+      - name: limit
+        in: query
+        schema:
+          type: string
+          example: '100'

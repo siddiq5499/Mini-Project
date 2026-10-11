@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team B | Availability Search & Conflict Analytics</title>
+<style>
+:root{font-family:Inter,Segoe UI,Arial,sans-serif;color:#172033;background:#f3f6fb}*{box-sizing:border-box}body{margin:0}.wrap{max-width:960px;margin:36px auto;padding:0 18px}.hero{background:#172554;color:#fff;padding:28px;border-radius:18px}.hero h1{margin:0 0 8px;font-size:clamp(24px,4vw,36px)}.hero p{margin:0;color:#dbeafe;line-height:1.5}.layout{display:grid;grid-template-columns:340px 1fr;gap:18px;margin-top:18px}.card{background:#fff;border:1px solid #dbe3ef;border-radius:16px;padding:22px;box-shadow:0 6px 22px #1e293b0b}.card h2{margin:0 0 16px;font-size:19px}label{display:block;font-weight:650;font-size:13px;margin:14px 0 6px}input{width:100%;padding:11px 12px;border:1px solid #bdc9da;border-radius:9px;font:inherit}button{margin-top:18px;width:100%;border:0;border-radius:10px;padding:12px 15px;background:#2563eb;color:#fff;font-weight:700;font-size:15px;cursor:pointer}button:hover{background:#1d4ed8}button:disabled{opacity:.6;cursor:wait}.hint,.muted{font-size:12px;color:#64748b;line-height:1.5}.status{margin-top:12px;font-size:13px}.result{white-space:pre-wrap;overflow-wrap:anywhere;background:#0f172a;color:#dbeafe;border-radius:10px;padding:16px;min-height:190px;font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}.pills{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.pill{background:#eff6ff;color:#1d4ed8;border-radius:99px;padding:6px 10px;font-size:12px;font-weight:700}.footer{margin:18px 0;color:#64748b;font-size:12px}@media(max-width:760px){.layout{grid-template-columns:1fr}.wrap{margin:18px auto}}
+</style></head>
+<body><main class="wrap">
+<section class="hero"><h1>Appointment Scheduler Engine</h1><p>Team B · Availability Search & Conflict Analytics</p><p style="margin-top:12px">Enter your own provider, appointment date, and duration. The engine validates the request, searches free slots, checks conflicts, and returns JSON.</p></section>
+<div class="layout"><section class="card"><h2>Availability request</h2>
+<form id="searchForm">
+<label for="apiKey">Generated API key</label><input id="apiKey" type="password" autocomplete="off" placeholder="Paste key from server terminal" required><div class="hint">The key is generated when the Java server starts for the first time and printed in its terminal.</div>
+<label for="provider">Provider ID</label><input id="provider" value="DR-001" placeholder="e.g. DR-001" required maxlength="50">
+<label for="date">Appointment date</label><input id="date" type="date" required>
+<label for="duration">Slot duration (minutes)</label><input id="duration" type="number" min="1" max="480" value="10" required>
+<button id="submit" type="submit">Find available slots</button><div id="status" class="status" role="status"></div>
+</form></section>
+<section class="card"><h2>Engine response</h2><div class="pills"><span class="pill">REST API</span><span class="pill">JSON</span><span class="pill">Conflict analytics</span></div><div id="result" class="result">Your availability results will appear here.</div><p class="muted">Sample database appointments are seeded for demo purposes. Availability is calculated from the data currently loaded by the engine.</p></section></div>
+<p class="footer">Local demo only · Keep your API key private. This key protects the API endpoint but is not an OpenAI or third-party provider key.</p>
+</main>
+<script>
+const dateInput=document.getElementById('date');
+dateInput.value='2026-10-04'; // seeded demo date; users can select any date
+const form=document.getElementById('searchForm');
+form.addEventListener('submit',async(event)=>{event.preventDefault();const button=document.getElementById('submit');const status=document.getElementById('status');const output=document.getElementById('result');button.disabled=true;status.textContent='Searching…';output.textContent='';
+const params=new URLSearchParams({provider:document.getElementById('provider').value.trim(),date:dateInput.value,duration:document.getElementById('duration').value});
+try{const response=await fetch('/availability?'+params.toString(),{headers:{'X-API-Key':document.getElementById('apiKey').value.trim()}});const data=await response.json();output.textContent=JSON.stringify(data,null,2);status.textContent=response.ok?'Request completed successfully.':'Request failed ('+response.status+'). Check the API key and input values.';}
+catch(error){status.textContent='Could not connect to the server. Make sure the Java app is running at localhost:4002.';output.textContent=String(error);}
+finally{button.disabled=false;}});
+</script></body></html>
