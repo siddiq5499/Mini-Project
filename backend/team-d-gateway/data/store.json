@@ -1,0 +1,84 @@
+{
+  "users": [
+    {
+      "user_id": "63a0c7a6-1a98-4758-af41-5954a9bd0bf4",
+      "name": "Scheduling Admin",
+      "email": "admin@careslot.local",
+      "phone": null,
+      "role": "ADMIN",
+      "created_at": "2026-10-06T09:09:03.825Z",
+      "salt": "7551d1c740ccd63abbefe4f8c526b2c8",
+      "hash": "cf3f61dad468c25f6b279379dd080d64259c365f8e94bf1ea5c611ee904b851b"
+    },
+    {
+      "user_id": "6279ccc2-15dc-4b67-b6ee-02bcc59a64a5",
+      "name": "Scheduling Admin",
+      "email": "admin@gmail.com",
+      "phone": null,
+      "role": "ADMIN",
+      "created_at": "2026-10-06T13:35:27.332Z",
+      "salt": "12c6ec36df1f82b472e5d7b5dbcf81b0",
+      "hash": "30f7e3a56f3872d2e9f0131fd38a97a9576a2113ef8774569fd352e4aab7885a"
+    },
+    {
+      "user_id": "4dc3ff4b-a2b3-4dde-ad8c-5458a8040cf8",
+      "patient_code": "PT-0001",
+      "team_c": true,
+      "name": "Rahul Sharma",
+      "phone": "9875651485",
+      "email": "rahul@gmail.com",
+      "role": "PATIENT",
+      "created_at": "2026-10-11T17:57:17.243Z",
+      "salt": "7ad5cc2825f7b8c67a4ed8799fba68ff",
+      "hash": "cd0749176645c8fe667a432854becf4ad56d8ded0dc9458ff205d1c9218cf6aa"
+    },
+    {
+      "user_id": "1d2b4bd3-fd51-4e48-be2f-ff00dd1fa020",
+      "name": "Dr. Raj Patil",
+      "email": "rajpatil@gmail.com",
+      "phone": null,
+      "role": "PROVIDER",
+      "provider_id": "DR-001",
+      "created_at": "2026-10-11T18:00:17.314Z",
+      "salt": "adde28a6add1ded15043c6edf0756ba2",
+      "hash": "aab06f0f2a0355fad11a2e5097cc9b5d2644e4bc2d86233b8d8f33e4c1842488"
+    },
+    {
+      "user_id": "4f90db0c-62fb-4df3-8c8b-a65bd1676510",
+      "patient_code": "PT-0002",
+      "team_c": true,
+      "name": "Ajay Singh",
+      "phone": "8545963254",
+      "email": "ajay@gmail.com",
+      "role": "PATIENT",
+      "created_at": "2026-10-11T18:16:11.905Z",
+      "salt": "c1af5a0d03e6b18fd2a22dfb9870a0cf",
+      "hash": "a7de6e5b8225367e2a4ee2356f82a872eb096c6097fa376d791d7ca3a013d1d3"
+    }
+  ],
+  "providers": [
+    {
+      "provider_id": "DR-001",
+      "name": "Dr. Raj Patil",
+      "service": "Cardiology",
+      "email": "rajpatil@gmail.com",
+      "status": "ACTIVE",
+      "daily_token_limit": 30,
+      "current_token": null,
+      "current_appointment_id": null,
+      "buffer": null
+    }
+  ],
+  "appointments": [],
+  "notifications": [],
+  "alerts": [],
+  "counters": {
+    "patient": 1,
+    "doctor": 1,
+    "appointment": 0,
+    "emergency": 0
+  },
+  "calendarVersion": 12,
+  "idem": {},
+  "reminders": []
+}

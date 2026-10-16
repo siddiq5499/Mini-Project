@@ -1,0 +1,468 @@
+
+=== PAGE 1 ===
+APNILEAP INITIATIVE 
+Appointment Scheduler Engine 
+System Design, Team Feature Contracts, APIs, Sequence Flows and KPIs 
+Prepared from Theme — RIT CSE Mini Project Implementation 
+Academic Year 2026–27 | Implementation Blueprint | Version 1.0 
+Purpose 
+Enable four student teams to build independently with explicit boundaries, integrate through versioned 
+contracts, and demonstrate measurable end-to-end engineering outcomes for a conflict-free, multi-provider 
+appointment booking and scheduling platform. 
+Source basis: RIT CSE Theme mini-project format (four-team academic ownership — OS, Data Structures, DBMS, Web Technology) 
+1. Executive Design Summary 
+Recommended system boundary 
+Team D is the user-facing experience and backend-for-frontend; Team C is the authoritative workflow and 
+data owner; Team A and Team B are independent computational services. Cross-team communication uses 
+versioned HTTPS/JSON APIs and a shared correlation ID. 
+1.1 Design objectives 
+● Preserve the four-team academic ownership model while making interfaces independently testable. 
+● Separate transactional authority (Team C) from algorithm engines (Teams A and B) and 
+presentation/orchestration (Team D). 
+● Make every booking traceable across all services using appointment_id, request_id, search_id and 
+correlation_id. 
+● Assess artefacts and engineering evidence — not only whether the final screen appears to work. 
+● Allow scheduling-policy and availability-search algorithm variants to be swapped without breaking 
+consumers. 
+1.2 Key architectural decisions 
+Decision Design rule 
+Database ownership Team C alone writes the authoritative relational database. Teams A, B and D use APIs; direct cross-team SQL is avoided to reduce coupling. 
+Orchestration Team C owns the appointment state machine; Team D orchestrates the user experience but does not become the system of record. 
+Algorithm isolation Teams A and B expose deterministic request/response contracts with algorithm_version and test evidence. 
+Live updates Team D consumes a Server-Sent Events or WebSocket stream for state changes; ordinary commands remain REST calls. 
+Failure handling Every cross-team command is idempotent; Team C records compensation when a slot lease, database commit, availability search or notification step fails. 
+2. System Architecture 
+=== PAGE 2 ===
+ 
+Synchronous path: HTTPS/JSON for commands and queries; API contracts are versioned under /api/v1. 
+Asynchronous path: SSE/WebSocket for dashboard freshness; Team C uses an outbox/audit record so committed 
+state changes are not lost. 
+Security baseline: Authenticated user session, role-based authorization, TLS, input/schema validation, rate limits, 
+audit logging and no database credentials in the browser. 
+3. Cross-Team Interface Standards 
+3.1 Common request contract 
+Field / header Required behavior 
+Authorization Bearer token or trusted service credential; every endpoint authorizes the action. 
+X-Correlation-ID One ID generated at Team D or Team C and propagated through every service and log. 
+Idempotency-Key Required for booking, rescheduling and other create/commit operations. 
+X-API-Version Optional header; URI /api/v1 remains the primary version boundary. 
+Content-Type application/json; UTF-8. 
+Timestamps ISO 8601 UTC; UI may localize for display. 
+Identifiers Opaque stable strings/UUIDs; never reuse a database row number as a public contract. 
+3.2 Standard response envelopes 
+Success: {"data": {...}, "meta": {"correlation_id": "...", "api_version": "v1"}} 
+Error: {"error": {"code": "SLOT_CONFLICT", "message": "...", "details": [...]}, 
+"meta": {"correlation_id": "..."}} 
+3.3 Cross-block data objects 
+
+=== PAGE 3 ===
+Object Minimum fields Owner 
+BookingRequest appointment_id, user_id, provider_id, service_type, start/end, priority, idempotency_key Team C 
+SchedulingRequest request_id, appointment_id, duration, priority, policy, submitted_at Team A 
+SchedulingDecision decision_id, request_id, assigned_slot_id, lease_id, state, decision_metrics Team A 
+AvailabilityRequest search_id_request, provider_id, date_range, duration, constraints Team B 
+AvailabilityResult search_id, ranked_free_slots, calendar_version, algorithm, latency Team B 
+ProviderCalendar provider_id, working_hours, blocked_intervals, version, capacity Team C 
+DashboardAggregate appointment, decision, availability, freshness, alerts, permissions Team D 
+3.4 State machine 
+REQUESTED → VALIDATED → QUEUED → SLOT_LOCKED → CONFIRMED → REMINDED → COMPLETED 
+Alternative outcomes: REJECTED, WAITLISTED, RESCHEDULED, CANCELLED, EXPIRED, NO_SHOW or 
+COMPENSATION_REQUIRED. 
+Contract rule 
+Only Team C changes the authoritative appointment state. Team A returns scheduling/decision state, Team B 
+returns availability/search state, and Team D renders the combined view. 
+4.1. Team A — Booking Queue & Slot Scheduling Engine 
+Operating Systems Engine 
+Mission 
+Accept appointment-booking requests, place them in policy-driven queues, allocate available provider slots 
+safely under concurrency, and publish scheduling state and performance metrics. 
+Feature ownership and contracts 
+A1. Request intake and queue management 
+Required inputs: request_id, user_id, provider_id, service_type, duration_minutes, priority, submitted_at, 
+preferred_window 
+Expected outputs: queue_position, state (QUEUED/READY), estimated_start, accepted_policy, correlation_id 
+API(s) exposed: POST /api/v1/scheduling/requests; GET /api/v1/providers/{providerId}/queue 
+Implementation note: Validate provider capacity and enqueue atomically. Queue implementation may vary by 
+algorithm: FIFO, circular queue, priority queue, or heap. 
+A2. Scheduling-policy execution 
+Required inputs: queue snapshot, provider calendar, selected policy (FCFS/EARLIEST_FIT/PRIORITY/URGENCY), 
+quantum_ms, policy parameters 
+=== PAGE 4 ===
+Expected outputs: decision_id, selected_request, assigned_slot_id, scheduled_start, algorithm_version, 
+decision_metrics 
+API(s) exposed: POST /internal/v1/scheduler/run; GET /api/v1/scheduling/decisions/{decisionId} 
+Implementation note: Make policy selection configurable so experiments can compare waiting time, turnaround 
+time, utilization, throughput and fairness. 
+Team A feature contracts — continued 
+A3. Concurrency, lock and double-booking control 
+Required inputs: slot_id, holder_id, lock_mode, wait-for edges, lease_timeout, allocation intent 
+Expected outputs: lock_granted, lease_id, conflict_reason, deadlock_cycle, prevention_or_recovery_action 
+API(s) exposed: POST /internal/v1/locks/acquire; DELETE /internal/v1/locks/{leaseId}; POST 
+/internal/v1/deadlocks/analyse 
+Implementation note: Use mutex/semaphore simulations and a wait-for graph. No two active bookings may own 
+the same exclusive provider slot. 
+A4. Runtime state and telemetry 
+Required inputs: request state changes, simulated queue processing time, batch completion, cancellation or 
+timeout 
+Expected outputs: request state, queue depth, utilization, wait/turnaround time, throughput, 
+starvation/deadlock indicators 
+API(s) exposed: GET /api/v1/scheduling/requests/{requestId}; GET /api/v1/metrics/scheduling; GET 
+/api/v1/stream/scheduling 
+Implementation note: Expose read-only state to Team D and scheduling decisions to Team C; use Server-Sent 
+Events or WebSocket only for the live dashboard stream. 
+Team A internal building blocks 
+● Scheduling API controller and request validator 
+● Queue repository with FIFO, circular, priority-queue and heap variants 
+● Pluggable scheduling-policy strategy (FCFS, Earliest-Fit, Priority and Urgency-weighted) 
+● Slot lease, semaphore/mutex and wait-for-graph manager 
+● State-transition publisher and metrics/benchmark collector 
+Team A minimum test scenarios 
+● Equal-priority bookings under every scheduling policy 
+● Provider-capacity exhaustion, cancellation, lease expiry and duplicate request 
+● Simultaneous slot-allocation attempts and seeded deadlock cycles 
+● Large queues used to compare latency, fairness and utilization 
+Team A API exposure matrix 
+Method Endpoint Primary consumer Contract purpose 
+POST /api/v1/scheduling/requests Team C Create a scheduling request; idempotent by request_id. 
+GET /api/v1/providers/{providerId}/queue Team D Read ordered queue and estimated starts. 
+GET /api/v1/scheduling/requests/{requestId} Teams C/D Read lifecycle state and allocation result. 
+=== PAGE 5 ===
+Method Endpoint Primary consumer Contract purpose 
+POST /internal/v1/scheduler/run Team C / test harness Execute a configured scheduling policy. 
+POST /internal/v1/locks/acquire Team C Reserve a simulated provider slot lease. 
+DELETE /internal/v1/locks/{leaseId} Team C Release reservation after commit/cancel/timeout. 
+GET /api/v1/metrics/scheduling Team D Read algorithm and runtime metrics. 
+ 
+Team A sequence diagram 
+ 
+Team A measurable KPIs 
+KPI Acceptance target 
+Scheduling correctness 100% match with reference decisions across the agreed policy test suite. 
+Decision latency p95 ≤ 200 ms for 1,000 queued requests on the reference machine. 
+Allocation safety 0 duplicate exclusive-slot allocations in 10,000 concurrent attempts. 
+Deadlock handling 100% seeded cycles detected; every cycle prevented or resolved within 1 s. 
+Fairness 0 starvation in bounded tests; publish maximum and p95 wait time by priority class. 
+Telemetry completeness 100% state transitions carry request_id, timestamp, policy and correlation_id. 
+API reliability ≥99.5% successful responses during the integration test window. 
+4.2. Team B — Availability Search & Conflict Analytics Engine 
+Data Structures Engine 
+
+=== PAGE 6 ===
+Mission 
+Model each provider's calendar as an interval-indexed structure and return deterministic, measurable free-
+slot search results, ranked options and conflict/overlap analytics for booking and rescheduling. 
+Feature ownership and contracts 
+B1. Provider calendar and interval registry 
+Required inputs: provider_id, working_hours, blocked_interval (start, end, reason), capacity, status 
+Expected outputs: calendar_version, accepted/rejected changes, validation errors, coverage summary 
+API(s) exposed: PUT /internal/v1/calendars/{providerId}/intervals; GET /api/v1/calendars 
+Implementation note: Support an interval-tree implementation as the baseline and a sorted-array binary-search 
+implementation for comparison experiments. 
+B2. Free-slot search and ranking 
+Required inputs: provider_id, date_range, duration, algorithm (INTERVAL_TREE/BINARY_SEARCH/SWEEP_LINE), 
+optimization_metric, constraints 
+Expected outputs: search_id, ranked_free_slots, total_options, tie_break_rule, algorithm, 
+explored_interval_count 
+API(s) exposed: POST /api/v1/availability/search; GET /api/v1/availability/{searchId} 
+Implementation note: Reject malformed date ranges. Return calendar_version so search results remain 
+reproducible after calendar changes. 
+Team B feature contracts — continued 
+B3. Fast slot lookup and cache optimization 
+Required inputs: provider/date key, slot entry, expiry, calendar version 
+Expected outputs: slot_status, cached_result, lookup_time_us, cache_hit, index statistics 
+API(s) exposed: GET /internal/v1/slot-index/{key}; POST /internal/v1/slot-cache/invalidate 
+Implementation note: Use AVL/Red-Black Tree and hash-map variants so students can compare lookup 
+complexity and memory cost. 
+B4. Conflict detection and utilization analysis 
+Required inputs: calendar snapshot, overlap-check algorithm, benchmark size and repetitions 
+Expected outputs: overlap_pairs, double_booking_count, utilization_rate, latency distribution, time/space 
+complexity evidence 
+API(s) exposed: POST /api/v1/calendars/analyse; GET /api/v1/metrics/availability 
+Implementation note: Overlap-detection results should be deterministic for a documented interval-comparison 
+rule. 
+Team B internal building blocks 
+● Calendar API and versioned interval repository 
+● Interval-tree and sorted-array/binary-search adapters 
+● Pluggable search strategy (Interval-Tree scan, Binary Search and Sweep-Line) 
+● AVL/Red-Black Tree and hash-based slot-index adapters 
+● Version-aware search cache and complexity/benchmark collector 
+Team B minimum test scenarios 
+=== PAGE 7 ===
+● Fully open, partially booked and fully booked provider calendars 
+● Malformed date range submitted and no-availability conditions 
+● Calendar changes during cache use and calendar-version mismatch 
+● Reference calendars for search correctness plus large-calendar benchmarks 
+Team B API exposure matrix 
+Method Endpoint Primary consumer Contract purpose 
+POST /api/v1/availability/search Teams C/D Search the best free slots using an explicit calendar version and policy. 
+GET /api/v1/availability/{searchId} Team D Read search result, ranking and algorithm metadata. 
+GET /api/v1/calendars Team D Render provider calendars, intervals and calendar version. 
+PUT /internal/v1/calendars/{providerId}/intervals Team C/Admin Create or update a blocked/working interval. 
+POST /api/v1/calendars/analyse Team D / test harness Run overlap/utilization analysis. 
+GET /api/v1/metrics/availability Team D Read search latency, cache and complexity metrics. 
+ 
+Team B sequence diagram 
+ 
+Team B measurable KPIs 
+KPI Acceptance target 
+Search correctness 100% of reference calendars return the expected free-slot set or documented no-availability result. 
+
+=== PAGE 8 ===
+KPI Acceptance target 
+Result optimality 0 slot-ranking deviation from the verified reference implementation for supported algorithms. 
+Computation latency p95 ≤ 100 ms for a 1,000-provider / 5,000-interval reference calendar set. 
+Calendar-version consistency 100% results identify the calendar_version used; stale versions are rejected or flagged. 
+Lookup efficiency p95 slot-index lookup ≤ 1 ms; report AVL/RB-tree/hash memory and latency. 
+Cache effectiveness ≥80% hit rate in the repeated-search benchmark; invalidation completed within 2 s. 
+API quality <1% failed requests at 200 requests/s in the agreed load test. 
+4.3. Team C — Appointment Data & Transaction Manager 
+DBMS Engine 
+Mission 
+Own the authoritative data model and transactional workflow for users, providers, calendars, appointments, 
+and audit evidence. 
+Feature ownership and contracts 
+C1. User, provider and calendar master data 
+Required inputs: user profile and role; provider metadata; calendar working hours, capacity, blocked intervals 
+Expected outputs: stable IDs, current state, version, validation result and audit metadata 
+API(s) exposed: POST /api/v1/users; GET /api/v1/providers; GET /api/v1/providers/{providerId}/calendar; PATCH 
+/internal/v1/providers/{providerId} 
+Implementation note: Normalize master data to at least 3NF; use constraints and foreign keys as the first 
+integrity boundary. 
+C2. Booking transaction and conflict control 
+Required inputs: appointment_id, user_id, provider_id, service_type, start/end, purpose, idempotency key 
+Expected outputs: appointment state, version, conflict reason, selected slot, timestamps and audit_id 
+API(s) exposed: POST /api/v1/appointments; GET /api/v1/appointments/{appointmentId}; POST 
+/api/v1/appointments/{appointmentId}/cancel 
+Implementation note: Use an ACID transaction and explicit isolation/locking strategy. A retry with the same 
+idempotency key must not create a second appointment. 
+Team C feature contracts — continued 
+C3. Slot commit and compensation 
+Required inputs: appointment_id, Team A decision_id and lease_id, selected slot, expected appointment version 
+Expected outputs: commit_status, committed appointment, new slot state, conflict details, compensation action 
+API(s) exposed: POST /internal/v1/appointments/commit; POST /internal/v1/appointments/compensate 
+Implementation note: Commit the appointment and slot state together. On failure, release the Team A lease and 
+record a compensating event. 
+C4. Audit, reporting and recovery 
+=== PAGE 9 ===
+Required inputs: actor, action, before/after values, correlation_id, source service, timestamp; backup/recovery 
+request 
+Expected outputs: append-only audit record, booking/utilization reports, recovery status, RPO/RTO evidence 
+API(s) exposed: GET /api/v1/audit; GET /api/v1/reports/utilization; POST /internal/v1/recovery/verify 
+Implementation note: Use B-tree indexes for range/reporting queries and hash indexes only where equality 
+access and database support justify them. 
+Team C internal building blocks 
+● Appointment and provider REST controllers with schema validation 
+● Appointment state-machine/orchestration service 
+● Relational repositories, constraints, indexes and migrations 
+● Transaction, isolation, idempotency and compensation manager 
+● Append-only audit/outbox, reporting, backup and recovery components 
+Team C minimum test scenarios 
+● Duplicate idempotency key, concurrent booking and lost-update attempt 
+● Database commit failure after Team A grants a slot lease 
+● Provider-calendar change while a booking request is in flight 
+● Backup restore, audit reconciliation and index-performance comparison 
+Team C API exposure matrix 
+Method Endpoint Primary consumer Contract purpose 
+POST /api/v1/appointments Team D Create an idempotent booking workflow. 
+GET /api/v1/appointments/{appointmentId} Team D Read state, decision, availability and audit references. 
+POST /api/v1/appointments/{appointmentId}/cancel Team D Cancel and release the slot through compensation. 
+GET /api/v1/providers/{providerId}/calendar Teams A/D Read capacity, working hours and availability. 
+POST /internal/v1/appointments/commit Team A/orchestrator Atomically commit a leased slot allocation. 
+PATCH /internal/v1/providers/{providerId} Admin/Team D Change provider operational or calendar state. 
+GET /api/v1/reports/utilization Team D Read aggregated utilization and booking performance. 
+GET /api/v1/audit Team D/Admin Search immutable audit evidence. 
+ 
+Team C sequence diagram 
+=== PAGE 10 ===
+ 
+Team C measurable KPIs 
+KPI Acceptance target 
+Transaction integrity 100% ACID test cases pass at the documented isolation level. 
+Booking safety 0 double bookings or lost updates in 10,000 concurrent booking attempts. 
+Commit latency p95 ≤ 500 ms for booking create/confirm excluding intentional queue wait. 
+Data quality 100% foreign-key, uniqueness and state-transition constraints enforced. 
+Query performance p95 ≤ 200 ms for agreed calendar, booking and utilization queries. 
+Audit coverage 100% create/update/cancel/commit transitions have actor, time, before/after and correlation_id. 
+Recovery Demonstrate RPO ≤ 5 minutes and RTO ≤ 30 minutes in the recovery exercise. 
+4.4. Team D — Scheduler Portal & Notification Dashboard 
+Web Technology Frontend 
+Mission 
+Provide role-aware booking, monitoring and administrative experiences while orchestrating Team A, B and C 
+APIs through a stable backend-for-frontend boundary. 
+Feature ownership and contracts 
+D1. Authentication and role-aware navigation 
+Required inputs: user identity/session, role claims, permissions and requested route 
+Expected outputs: authenticated session, permitted navigation, forbidden/expired-session handling 
+API(s) exposed: POST /api/v1/ui/session; DELETE /api/v1/ui/session; GET /api/v1/ui/me 
+Implementation note: Roles: Patient/Customer, Provider, Scheduling Admin. Team D must never infer 
+authorization only from hidden UI elements; backend APIs enforce it. 
+
+=== PAGE 11 ===
+D2. Search, availability and booking experience 
+Required inputs: provider/date/time/service filters, selected slot, booking form and idempotency key 
+Expected outputs: available options, validation errors, appointment_id, state, queue position and estimated start 
+API(s) exposed: GET /api/v1/ui/providers; POST /api/v1/ui/appointments; GET 
+/api/v1/ui/appointments/{appointmentId} 
+Implementation note: The backend-for-frontend calls Team C for authoritative availability/booking and Team A 
+for live queue detail. 
+Team D feature contracts — continued 
+D3. Live operations dashboard 
+Required inputs: scheduling stream, calendar/slot states, availability data, audit events 
+Expected outputs: queue visualization, slot status, availability overlay, alerts and drill-down detail 
+API(s) exposed: GET /api/v1/ui/dashboard; GET /api/v1/ui/stream; GET /api/v1/ui/calendars 
+Implementation note: Use asynchronous updates, resilient reconnection and a visible last-updated timestamp. 
+Never silently display stale data. 
+D4. Administration, reports, reminders and accessibility 
+Required inputs: calendar changes, report filters, export request, reminder preferences, accessibility preferences 
+Expected outputs: validated administrative action, utilization report, export, scheduled reminders, accessible 
+status and actionable error feedback 
+API(s) exposed: PATCH /api/v1/ui/providers/{providerId}; GET /api/v1/ui/reports/utilization; POST 
+/api/v1/ui/appointments/{appointmentId}/reminders 
+Implementation note: Use responsive HTML/CSS, modular JavaScript, keyboard operation, sufficient contrast, 
+labels and tested error/retry states. 
+Team D internal building blocks 
+● Responsive browser views and reusable UI components 
+● Backend-for-frontend aggregation and session boundary 
+● Role/permission-aware navigation and action guards 
+● Async API client, SSE/WebSocket reconnection and freshness monitor 
+● Dashboard visualization, notification, accessibility and error/retry components 
+Team D minimum test scenarios 
+● Patient/Customer, Provider and Scheduling Admin positive and forbidden flows 
+● Slow, failed and malformed downstream API responses 
+● Live-stream disconnect, reconnect and stale-data indication 
+● Keyboard-only, responsive-layout and cross-browser critical-flow tests 
+Team D API exposure matrix 
+Method Endpoint Primary consumer Contract purpose 
+POST /api/v1/ui/appointments Browser/mobile UI Validate and proxy booking creation to Team C. 
+GET /api/v1/ui/appointments/{appointmentId} Browser/mobile UI Aggregate booking, queue and availability status. 
+=== PAGE 12 ===
+Method Endpoint Primary consumer Contract purpose 
+GET /api/v1/ui/dashboard Browser/admin UI Aggregate calendar, scheduling and alert summaries. 
+GET /api/v1/ui/stream Browser/admin UI SSE/WebSocket stream of state changes. 
+GET /api/v1/ui/calendars Browser/admin UI Return Team B availability and conflict overlays. 
+PATCH /api/v1/ui/providers/{providerId} Scheduling Admin Validate and proxy a calendar/status change. 
+GET /api/v1/ui/reports/utilization Provider/Admin Aggregate Team C reports and Team A metrics. 
+ 
+Team D sequence diagram 
+ 
+Team D measurable KPIs 
+KPI Acceptance target 
+User task success ≥95% of test users complete search-and-book without facilitator help. 
+Initial experience Largest Contentful Paint ≤ 2.5 s on the agreed network profile. 
+Interaction speed p95 UI interaction response ≤ 200 ms excluding backend wait. 
+Live freshness p95 source-event-to-visible-update ≤ 2 s; stale state is clearly marked. 
+Accessibility 100% critical flows keyboard-operable; no critical automated accessibility violations. 
+Error handling 100% backend error classes map to a clear message, retry or corrective action. 
+Compatibility Critical flows pass on the agreed current versions of Chrome, Edge and Firefox. 
+5. End-to-End Call Flow 
+
+=== PAGE 13 ===
+ 
+5.1 Flow interpretation and failure behavior 
+1. Team D authenticates the user, validates the booking form and generates or propagates correlation_id and 
+idempotency key. 
+2. Team C validates master data and creates the authoritative appointment workflow. 
+3. Team C calls Team A with an independently traceable scheduling request. 
+4. Team A returns either a leased slot allocation, a waitlist outcome or a documented rejection. 
+5. Team C commits appointment, slot allocation, provider-calendar state, audit and outbox event in one 
+database transaction. 
+6. Team C requests an availability/conflict check from Team B when the confirmed workflow needs 
+rescheduling or overlap evidence. 
+7. Team C returns a stable aggregate to Team D; Team D renders the outcome and subscribes to subsequent 
+updates. 
+8. If commit fails after Team A grants a lease, Team C releases/compensates the lease. If the availability check 
+fails, the booking remains valid but availability_status is DEGRADED and retried. 
+6. End-to-End KPIs and Acceptance Gates 
+E2E KPI Acceptance target Evidence 
+Booking completion 
+latency 
+p95 ≤ 2.0 s from Team D submission to 
+CONFIRMED/WAITLISTED response, excluding deliberate 
+queue wait. 
+Distributed trace and load-
+test report 
+Workflow correctness 100% expected state transitions; 0 illegal transitions across happy-path and failure-path tests. State-machine test suite 
+Cross-service consistency 100% confirmed appointments reference a valid slot allocation; all displayed calendar states match Team C. Reconciliation query/report 
+Availability check 
+completion 
+p95 availability result available ≤ 500 ms after confirmed 
+allocation; degraded state is explicit on failure. 
+Trace timestamps and retry 
+log 
+
+=== PAGE 14 ===
+E2E KPI Acceptance target Evidence 
+End-to-end reliability ≥99% successful outcomes at 200 concurrent users; <1% unhandled 5xx responses. 30-minute integration load test 
+Idempotency 100% duplicate submissions with the same key return the original outcome and create no duplicate records. Retry/duplicate test suite 
+Traceability 100% calls and state changes searchable by correlation_id; IDs link appointment, scheduling and availability evidence. Log and audit inspection 
+Security 0 unauthorized role actions; 100% sensitive APIs require authentication; no secrets/PII in client logs. Security test checklist 
+Dashboard freshness p95 committed-state-to-visible-update ≤ 2 s; stale/disconnected status is clearly shown. Event timestamp comparison 
+Recovery A failed downstream step is retried or compensated; no orphan slot lease remains after timeout. Fault-injection report 
+6.1 Definition of done 
+● Every API has an OpenAPI 3.x contract, example payloads, error codes and ownership. 
+● Each team has unit, contract, performance and negative tests tied to its KPIs. 
+● The integrated deployment propagates correlation_id and produces one traceable end-to-end booking. 
+● Failure cases — invalid user, no availability, duplicate request, lock conflict, availability-check failure and 
+downstream timeout — are demonstrated. 
+● A KPI evidence pack contains raw results, configuration, environment and interpretation; screenshots 
+alone are insufficient. 
+7. Integration and Delivery Plan 
+Phase Team deliverable Integration gate 
+1. Contract freeze OpenAPI schemas, object definitions, error codes, mock examples All consumers validate against mocks; no ambiguous owner 
+2. Independent engines Teams A/B algorithms; Team C schema/workflow; Team D UI/BFF Unit and component KPIs pass 
+3. Pairwise integration A↔C, B↔C, C↔D Consumer-driven contract tests pass 
+4. End-to-end workflow Search → Schedule → Confirm → Notify → Update Trace, idempotency and compensation gates pass 
+5. Performance and 
+resilience Load, fault injection, recovery and stale-data tests E2E KPI table accepted 
+6. Demonstration and 
+assessment Working system plus artefacts/evidence Review panel signs off rubric and improvement backlog 
+7.1 Team-to-team handoff checklist 
+● Producer publishes OpenAPI contract, JSON examples, status codes, limits and version policy. 
+● Consumer writes a mock-based contract test before the producer implementation is complete. 
+● Producer supplies deterministic seed data and a health/readiness endpoint. 
+● Both teams agree timeout, retry and idempotency behavior; retries never multiply side effects. 
+● Breaking changes create /v2 or follow an agreed deprecation window. 
+=== PAGE 15 ===
+● Every interface has one named owner and one consumer representative. 
+7.2 Suggested ownership matrix 
+Capability Accountable Contributors / consumers 
+Scheduling algorithms and locks Team A Team C integrates; Team D visualizes 
+Availability-search algorithms Team B Team C requests; Team D visualizes 
+Data model, appointment state and 
+audit Team C All teams consume 
+User experience and API 
+aggregation Team D All teams provide data 
+Common contract and E2E test One integration lead One representative from every team 
+8. Assessment Evidence by Team 
+Team Minimum engineering artefacts Review emphasis 
+A 
+Scheduling-policy implementations; queue/lock structures; 
+state diagram; deadlock cases; benchmark report; OpenAPI 
+contract 
+Correctness, concurrency safety, fairness 
+and measurable comparison 
+B 
+Interval-tree calendar model; search algorithms; tree/hash 
+lookup; complexity analysis; benchmark report; OpenAPI 
+contract 
+Correctness, optimality, reproducibility 
+and time/space evidence 
+C 
+ER model; normalized schema; migrations; constraints; 
+transaction/isolation tests; indexes; audit/recovery report; 
+OpenAPI contract 
+ACID behavior, integrity, query 
+performance and recovery 
+D Responsive UI; role flows; async state handling; accessibility report; API/BFF contract; user test and browser test evidence Usability, freshness, resilience, accessibility and error handling 
+E2E Deployment manifest; seed data; distributed trace; load/fault tests; KPI evidence pack; demo script Interoperability, idempotency, compensation, traceability and system outcomes 
+8.1 Source and assumptions 
+Primary source: RIT CSE mini-project theme brief — Appointment Scheduler Engine (four-team academic format). 
+Source concepts retained: Four-team division, artefact-based assessment, booking/scheduling engine, 
+availability-search engine, DBMS engine, dashboard, common JSON contracts and the integrated Search → 
+Schedule → Confirm → Notify → Update UI workflow. 
+Design additions: Detailed feature boundaries, API endpoints, common headers, failure handling, ownership 
+rules, sequence flows and measurable acceptance KPIs are strategic elaborations created for implementation. 
+Tailoring note 
+Latency and load thresholds are initial course targets. Faculty may recalibrate them after measuring the 
+available lab hardware, network and cohort scale, but every target should remain numeric and reproducible. 
+ 

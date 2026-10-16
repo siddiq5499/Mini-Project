@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CareSlot — Clinic Appointment Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ambient Glassmorphism Mesh Elements -->
+  <div class="bg-mesh" aria-hidden="true">
+    <div class="mesh-orb orb-1"></div>
+    <div class="mesh-orb orb-2"></div>
+    <div class="mesh-orb orb-3"></div>
+  </div>
+
+  <a class="skip" href="#view">Skip to main content</a>
+
+  <!-- ==================== 1. LOGIN / REGISTER SCREEN ==================== -->
+  <section id="login-screen">
+    <div class="login-container">
+      <div class="login-card">
+        <!-- Brand Header -->
+        <div class="brand-header">
+          <div class="brand-logo-circle">🩺</div>
+          <div>
+            <h1>CareSlot</h1>
+            <p class="brand-tagline">Clinic Token & Appointment Portal</p>
+          </div>
+        </div>
+
+        <!-- Tabs: Log in / Create Account -->
+        <div class="tabs" role="tablist" aria-label="Account Tabs">
+          <button type="button" role="tab" id="tab-login" aria-selected="true" aria-controls="login-form">Log In</button>
+          <button type="button" role="tab" id="tab-register" aria-selected="false" aria-controls="register-form">Create Patient Account</button>
+        </div>
+
+        <!-- Log In Form -->
+        <form id="login-form" novalidate>
+          <div class="form-group">
+            <label for="login-id">Email or Mobile Number</label>
+            <div class="input-icon-wrap">
+              <span class="input-icon">👤</span>
+              <input id="login-id" autocomplete="username" placeholder="e.g. admin@gmail.com or 8954789620" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <div class="input-icon-wrap">
+              <span class="input-icon">🔒</span>
+              <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+            </div>
+          </div>
+
+          <p id="login-msg" class="form-error" role="alert"></p>
+          <button class="btn primary block lg-btn" id="login-btn" type="submit">Sign In to Dashboard →</button>
+        </form>
+
+        <!-- Register Form -->
+        <form id="register-form" hidden novalidate>
+          <p class="muted small-note">Register as a patient to receive your token number and track real-time clinic status.</p>
+
+          <div class="form-group">
+            <label for="reg-name">Full Name</label>
+            <input id="reg-name" autocomplete="name" placeholder="e.g. Rahul Sharma">
+            <p class="field-error" id="reg-err-name" role="alert"></p>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-phone">10-Digit Mobile Number</label>
+            <input id="reg-phone" inputmode="numeric" autocomplete="tel" placeholder="e.g. 9876543210">
+            <p class="field-error" id="reg-err-phone" role="alert"></p>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-email">Email Address (Optional)</label>
+            <input id="reg-email" type="email" autocomplete="email" placeholder="e.g. rahul@example.com">
+            <p class="field-error" id="reg-err-email" role="alert"></p>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-password">Password (min 6 characters)</label>
+            <input id="reg-password" type="password" autocomplete="new-password" placeholder="••••••••">
+            <p class="field-error" id="reg-err-password" role="alert"></p>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-confirm">Confirm Password</label>
+            <input id="reg-confirm" type="password" autocomplete="new-password" placeholder="••••••••">
+            <p class="field-error" id="reg-err-confirm" role="alert"></p>
+          </div>
+
+          <p id="reg-msg" class="form-error" role="alert"></p>
+          <button class="btn primary block lg-btn" id="reg-btn" type="submit">Create Patient Account</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 2. MAIN APPLICATION SHELL ==================== -->
+  <div id="app" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-title-wrap">
+          <span class="brand-symbol">🩺</span>
+          <span class="brand-badge">CareSlot</span>
+        </div>
+      </div>
+
+      <nav id="nav" aria-label="Main navigation"></nav>
+
+      <div class="user-box">
+        <div class="user-avatar-circle">👤</div>
+        <div class="user-info-text">
+          <div id="user-name" class="user-name"></div>
+          <div id="user-role" class="muted-light"></div>
+        </div>
+        <button id="logout" class="btn ghost-light block logout-btn" type="button">Log Out</button>
+      </div>
+    </aside>
+
+    <div class="content">
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 id="page-title" tabindex="-1">Dashboard</h1>
+        </div>
+        <div class="topbar-right">
+          <div id="status" class="status" role="status" aria-live="polite">Live Queue Connected</div>
+        </div>
+      </header>
+
+      <!-- Global Emergency Ticker Banner (Shows ONLY when an emergency priority is active) -->
+      <div id="global-emergency-banner" class="emergency-banner" hidden>
+        🚨 <strong>URGENT EMERGENCY ACTIVE:</strong> An emergency patient has been given FIRST PRIORITY. Regular tokens follow immediately.
+      </div>
+
+      <main id="view" aria-busy="false"></main>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATIONS CONTAINER -->
+  <div id="toasts" aria-live="polite"></div>
+
+  <!-- ==================== 3. MODALS & DIALOGS ==================== -->
+
+  <!-- Printable Token Slip Modal -->
+  <dialog id="token-slip-dialog" aria-labelledby="slip-title">
+    <div class="slip-content" id="slip-print-area">
+      <div class="slip-header">
+        <div class="slip-clinic-name">🏥 CareSlot Clinic</div>
+        <h2>Patient Token Pass</h2>
+        <p class="muted small-note">Keep this slip or note your token number</p>
+      </div>
+      <div class="slip-body" id="slip-details"></div>
+      <div class="slip-footer">
+        <p class="small-note muted">
+          ⚠️ <strong>Instructions:</strong> When your token is called by Admin, please report within the 2-minute availability buffer.
+        </p>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn" id="slip-print-btn" type="button">🖨️ Print Token Pass</button>
+      <button class="btn primary" id="slip-close-btn" type="button">Close</button>
+    </div>
+  </dialog>
+
+  <!-- Doctor Daily Token Limit Dialog (Req 5) -->
+  <dialog id="token-limit-dialog" aria-labelledby="limit-title">
+    <form id="token-limit-form" method="dialog">
+      <h2 id="limit-title">Set Daily Token Capacity</h2>
+      <p class="muted">Doctor or Admin can set how many appointments are accepted each day. (Default: 30 tokens)</p>
+      <div class="form-group">
+        <label for="daily-limit-input">Daily Token Limit</label>
+        <input type="number" id="daily-limit-input" min="5" max="300" required>
+      </div>
+      <p id="limit-err" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="btn" value="cancel" type="submit">Cancel</button>
+        <button class="btn primary" id="limit-save-btn" value="save" type="submit">Save Limit</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="script.js"></script>
+</body>
+</html>

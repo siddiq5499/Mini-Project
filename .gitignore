@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+**/node_modules/
+target/
+**/target/
+
+# Build output
+*.class
+dist/
+build/
+
+# Environment files & Secrets (Do not commit secrets or local config)
+.env
+.env.*
+*.env
+**/.env
+**/.env.*
+!**/.env.example
+*.key
+*.pem
+*.cert
+*.pfx
+api-key.txt
+
+# Database files & local dumps
+*.mv.db
+*.trace.db
+*.bak
+*_backup_*.json
+
+# IDE & Editors
+.idea/
+.vscode/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
